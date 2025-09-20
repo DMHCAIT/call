@@ -1,0 +1,475 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String   @id @default(cuid())
+  email           String   @unique
+  name            String?
+  phone           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Profile and preferences
+  profile         UserProfile?
+  measurements    Measurement[]
+  stylePreferences StylePreference[]
+  orders          Order[]
+  consultations   Consultation[]
+  wishlist        WishlistItem[]
+  reviews         Review[]
+  addresses       Address[]
+  
+  @@map("users")
+}
+
+model UserProfile {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  avatar          String?
+  dateOfBirth     DateTime?
+  preferredFit    String?   // 'slim', 'regular', 'comfort'
+  preferredColors String[]
+  occasions       String[]  // 'formal', 'wedding', 'casual', etc.
+  
+  // Customer lifetime metrics
+  totalSpent      Float    @default(0)
+  totalOrders     Int      @default(0)
+  loyaltyPoints   Int      @default(0)
+  
+  @@map("user_profiles")
+}
+
+model Measurement {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  name        String   // 'Slim Fit', 'Wedding Suit', etc.
+  isDefault   Boolean  @default(false)
+  
+  // Measurements in cm
+  chest       Float?
+  waist       Float?
+  hips        Float?
+  shoulders   Float?
+  armLength   Float?
+  legLength   Float?
+  neck        Float?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@map("measurements")
+}
+
+model StylePreference {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  category    String   // 'suits', 'ethnic', 'casual'
+  styles      String[] // preferred styles within category
+  colors      String[] // preferred colors
+  fabrics     String[] // preferred fabrics
+  
+  @@map("style_preferences")
+}
+
+model Category {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  slug        String    @unique
+  description String?
+  image       String?
+  parentId    String?
+  parent      Category? @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children    Category[] @relation("CategoryHierarchy")
+  
+  products    Product[]
+  
+  @@map("categories")
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String
+  basePrice   Float
+  
+  categoryId  String
+  category    Category @relation(fields: [categoryId], references: [id])
+  
+  images      ProductImage[]
+  variants    ProductVariant[]
+  fabrics     ProductFabric[]
+  
+  // SEO and content
+  metaTitle   String?
+  metaDescription String?
+  
+  // Inventory and status
+  isActive    Boolean  @default(true)
+  isFeatured  Boolean  @default(false)
+  
+  // 3D Model data
+  modelUrl    String?
+  modelConfig Json?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  orderItems  OrderItem[]
+  wishlistItems WishlistItem[]
+  reviews     Review[]
+  
+  @@map("products")
+}
+
+model ProductImage {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  url       String
+  altText   String?
+  isPrimary Boolean @default(false)
+  sortOrder Int     @default(0)
+  
+  @@map("product_images")
+}
+
+model ProductVariant {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  name      String  // 'Small', 'Medium', 'Blue', etc.
+  type      String  // 'size', 'color', etc.
+  value     String
+  priceAdjustment Float @default(0)
+  
+  @@map("product_variants")
+}
+
+model Fabric {
+  id          String  @id @default(cuid())
+  name        String
+  description String?
+  composition String? // '100% Wool', '70% Cotton 30% Polyester'
+  weight      Float?  // GSM
+  texture     String? // 'Smooth', 'Textured', etc.
+  care        String? // Care instructions
+  
+  // Pricing
+  pricePerMeter Float
+  
+  // Visual properties
+  color       String
+  pattern     String? // 'Solid', 'Stripes', 'Checks'
+  image       String?
+  
+  // Availability
+  stockQuantity Float @default(0) // in meters
+  isActive    Boolean @default(true)
+  
+  products    ProductFabric[]
+  orderItems  OrderItem[]
+  inventoryTransactions InventoryTransaction[]
+  
+  @@map("fabrics")
+}
+
+model ProductFabric {
+  productId String
+  fabricId  String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  fabric    Fabric  @relation(fields: [fabricId], references: [id], onDelete: Cascade)
+  
+  isDefault Boolean @default(false)
+  priceAdjustment Float @default(0)
+  
+  @@id([productId, fabricId])
+  @@map("product_fabrics")
+}
+
+model Order {
+  id          String      @id @default(cuid())
+  orderNumber String      @unique
+  userId      String
+  user        User        @relation(fields: [userId], references: [id])
+  
+  // Order details
+  status      OrderStatus @default(PENDING)
+  
+  // Pricing
+  subtotal    Float
+  tax         Float       @default(0)
+  shipping    Float       @default(0)
+  total       Float
+  
+  // Fulfillment
+  shippingAddressId String?
+  shippingAddress   Address? @relation("OrderShippingAddress", fields: [shippingAddressId], references: [id])
+  billingAddressId  String?
+  billingAddress    Address? @relation("OrderBillingAddress", fields: [billingAddressId], references: [id])
+  
+  // Tracking
+  trackingNumber String?
+  
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  shippedAt   DateTime?
+  deliveredAt DateTime?
+  
+  items       OrderItem[]
+  statusHistory OrderStatusHistory[]
+  
+  @@map("orders")
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  MEASUREMENTS_FINALIZED
+  FABRIC_CUTTING
+  STITCHING
+  FINISHING
+  QUALITY_CHECK
+  SHIPPED
+  DELIVERED
+  COMPLETED
+  CANCELLED
+}
+
+model OrderItem {
+  id        String @id @default(cuid())
+  orderId   String
+  order     Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+  
+  fabricId  String?
+  fabric    Fabric? @relation(fields: [fabricId], references: [id])
+  
+  quantity  Int
+  unitPrice Float
+  total     Float
+  
+  // Customizations
+  measurements Json? // Custom measurements for this item
+  notes       String?
+  
+  // Service type
+  serviceType ServiceType @default(DIRECT_BUY)
+  consultationId String?
+  consultation   Consultation? @relation(fields: [consultationId], references: [id])
+  
+  @@map("order_items")
+}
+
+enum ServiceType {
+  DIRECT_BUY
+  VIDEO_CONSULTATION
+  HOME_VISIT
+}
+
+model OrderStatusHistory {
+  id        String   @id @default(cuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  
+  status    OrderStatus
+  notes     String?
+  createdAt DateTime @default(now())
+  
+  @@map("order_status_history")
+}
+
+model Address {
+  id          String  @id @default(cuid())
+  userId      String
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  type        String  // 'shipping', 'billing'
+  name        String
+  phone       String
+  line1       String
+  line2       String?
+  city        String
+  state       String
+  pincode     String
+  country     String  @default("India")
+  
+  isDefault   Boolean @default(false)
+  
+  // Order relations
+  shippingOrders Order[] @relation("OrderShippingAddress")
+  billingOrders  Order[] @relation("OrderBillingAddress")
+  
+  @@map("addresses")
+}
+
+model Consultation {
+  id          String           @id @default(cuid())
+  userId      String
+  user        User             @relation(fields: [userId], references: [id])
+  
+  type        ConsultationType
+  status      ConsultationStatus @default(SCHEDULED)
+  
+  // Scheduling
+  scheduledAt DateTime
+  duration    Int              @default(60) // minutes
+  
+  // Details
+  notes       String?
+  tailorNotes String?
+  
+  // Video consultation
+  meetingUrl  String?
+  
+  // Home visit
+  address     Json?            // Address for home visit
+  
+  // Results
+  measurements Json?           // Finalized measurements
+  recommendations String?      // Tailor recommendations
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  orderItems  OrderItem[]
+  
+  @@map("consultations")
+}
+
+enum ConsultationType {
+  VIDEO
+  HOME_VISIT
+}
+
+enum ConsultationStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  RESCHEDULED
+}
+
+model WishlistItem {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  addedAt   DateTime @default(now())
+  
+  @@unique([userId, productId])
+  @@map("wishlist_items")
+}
+
+model Review {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  
+  productId String
+  product   Product  @relation(fields: [productId], references: [id])
+  
+  rating    Int      // 1-5
+  title     String?
+  comment   String?
+  images    String[] // URLs to uploaded images
+  
+  isVerified Boolean @default(false) // Verified purchase
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("reviews")
+}
+
+// Admin and CRM models
+model TailorProfile {
+  id          String   @id @default(cuid())
+  name        String
+  email       String   @unique
+  phone       String
+  
+  // Specializations
+  specializations String[] // 'suits', 'ethnic', 'alterations'
+  
+  // Availability
+  isActive    Boolean  @default(true)
+  
+  // Location (for home visits)
+  serviceAreas String[] // Cities/areas they serve
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@map("tailor_profiles")
+}
+
+model InventoryTransaction {
+  id          String   @id @default(cuid())
+  fabricId    String
+  fabric      Fabric   @relation(fields: [fabricId], references: [id])
+  
+  type        String   // 'IN', 'OUT', 'ADJUSTMENT'
+  quantity    Float    // in meters
+  reason      String?  // 'Purchase', 'Sale', 'Waste', etc.
+  reference   String?  // Order number, PO number, etc.
+  
+  createdAt   DateTime @default(now())
+  
+  @@map("inventory_transactions")
+}
+
+// Analytics and reporting
+model PageView {
+  id        String   @id @default(cuid())
+  page      String
+  userId    String?
+  sessionId String
+  
+  // Additional tracking data
+  userAgent String?
+  referer   String?
+  
+  viewedAt  DateTime @default(now())
+  
+  @@map("page_views")
+}
+
+model ConversionEvent {
+  id        String   @id @default(cuid())
+  type      String   // 'product_view', 'add_to_cart', 'consultation_booked', 'purchase'
+  userId    String?
+  sessionId String
+  
+  // Event data
+  productId String?
+  value     Float?   // Monetary value if applicable
+  metadata  Json?    // Additional event data
+  
+  createdAt DateTime @default(now())
+  
+  @@map("conversion_events")
+}
